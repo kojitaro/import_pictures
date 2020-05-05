@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:io';
+
+import 'import_main.dart';
 
 void main() {
   runApp(MyApp());
@@ -32,9 +35,11 @@ class _ImportParametersState extends State<ImportParametersPage> {
   TextEditingController _srcFolderController = TextEditingController();
   TextEditingController _destFolderController = TextEditingController();
 
+  final _formKey = GlobalKey<FormState>();
+
   static const platform = const MethodChannel('net.hekatoncheir.importPictures/folders');
 
-  Future<void> _onSelectSrcFolder() async {
+  Future<void> _onSelectFolder(controller) async {
     String folder;
     try {
       folder = await platform.invokeMethod('chooseFolder');
@@ -43,23 +48,28 @@ class _ImportParametersState extends State<ImportParametersPage> {
     }
     if( folder != null && folder.length > 0 ) {
       setState(() {
-        _srcFolderController.text = folder;
+        controller.text = folder;
       });
     }
-
   }
-  Future<void> _onSelectDestFolder() async {
-    String folder;
-    try {
-      folder = await platform.invokeMethod('chooseFolder');
-    } on PlatformException {
 
+  Future<void> _onImportStart() async {
+    if (_formKey.currentState.validate()) {
+      Navigator.push(context, new MaterialPageRoute<Null>(
+          settings: const RouteSettings(name: "/import"),
+          builder: (BuildContext context) => new ImportMainPage(srcFolder: _srcFolderController.text, destFolder: _destFolderController.text)
+      ));
     }
-    if( folder != null && folder.length > 0 ) {
-      setState(() {
-        _destFolderController.text = folder;
-      });
-    }
+  }
+
+
+  String _folderValidator(value) {
+      if (value.isEmpty) {
+        return 'フォルダを指定してください。';
+      }else if( ! Directory(value).existsSync() ){
+        return '指定されたフォルダは無効です。';
+      }
+      return null;
   }
 
   @override
@@ -68,33 +78,49 @@ class _ImportParametersState extends State<ImportParametersPage> {
       appBar: AppBar(
         title: Text(widget.title),
       ),
-      body: Form(
-        child: Column(
-          children: <Widget>[
-            Text(
-              '写真をインポートします。',
-            ),
-            TextFormField(
-              controller: _srcFolderController,
-              decoration: InputDecoration(
-                  labelText: 'インポート元フォルダ',
+      body: Padding(
+        padding: const EdgeInsets.all(30.0),
+        child:
+          Form(
+          key: _formKey,
+          child: Column(
+            children: <Widget>[
+              Text(
+                '写真をインポートします。',
+              ),
+              TextFormField(
+                controller: _srcFolderController,
+                decoration: InputDecoration(
+                    labelText: 'インポート元フォルダ',
+                    suffix: IconButton(
+                      icon: Icon(Icons.folder_open),
+                      onPressed: () => _onSelectFolder(_srcFolderController),
+                    ),
+                ),
+                validator: _folderValidator,
+              ),
+              TextFormField(
+                controller: _destFolderController,
+                decoration: InputDecoration(
+                  labelText: 'インポート先フォルダ',
                   suffix: IconButton(
                     icon: Icon(Icons.folder_open),
-                    onPressed: _onSelectSrcFolder,
+                    onPressed: () => _onSelectFolder(_destFolderController),
                   ),
-              ),
-            ),
-            TextFormField(
-              controller: _destFolderController,
-              decoration: InputDecoration(
-                labelText: 'インポート先フォルダ',
-                suffix: IconButton(
-                  icon: Icon(Icons.folder_open),
-                  onPressed: _onSelectDestFolder,
                 ),
+                validator: _folderValidator,
               ),
-            ),
-          ],
+              SizedBox(height: 30),
+              FlatButton(
+                onPressed: _onImportStart,
+                color: Colors.blue,
+                textColor: Colors.white,
+                child: Text(
+                  'インポート',
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
