@@ -1,7 +1,9 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+
 import 'package:path/path.dart' as p;
 import 'package:percent_indicator/percent_indicator.dart';
 import 'package:exif/exif.dart';
@@ -17,6 +19,11 @@ class ImportMainPage extends StatefulWidget {
 }
 
 class _ImportMainState extends State<ImportMainPage> {
+  var _finish = false;
+  var _cancel = false;
+  var _importFuture;
+
+  // 表示関連
   var _message = "";
   var _currentWork = "";
   var _progressPercent = 0.0;
@@ -24,11 +31,14 @@ class _ImportMainState extends State<ImportMainPage> {
 
   @override
   void initState() {
-    _import();
+    _finish = false;
+    _cancel = false;
+    _importFuture = _import().then((value) => _finish=true);
     super.initState();
   }
 
   Future<void> _import() async {
+
     debugPrint("_import");
     // 対象の全ファイルをスキャンする
     setState(() {
@@ -71,8 +81,14 @@ class _ImportMainState extends State<ImportMainPage> {
     var dateDateFormat = DateFormat('yyyy-MM-dd');
 
     for (var i = 0; i < copyFiles.length; i++) {
+      if(_cancel) {
+        await Future.delayed(Duration(seconds: 1));
+        print("cancel");
+        break;
+      }
       try {
         var file = File(copyFiles[i]);
+        print(file.toString());
         var baseName = p.basename(file.path);
         var extension = p.extension(file.path).toLowerCase();
 
@@ -88,23 +104,25 @@ class _ImportMainState extends State<ImportMainPage> {
           Map<String, IfdTag> exif = await readExifFromBytes(
               await file.readAsBytes());
           const key = "EXIF DateTimeOriginal";
-          if( exif.containsKey(key) ){
+          if (exif.containsKey(key)) {
             var dateTimeValue = exif[key];
 //            debugPrint(dateTimeValue.toString());
             fileDate = exifDateFormat.parse(dateTimeValue.toString());
           }
         }
-        if(fileDate == null ){
+        if (fileDate == null) {
           var stat = await file.stat();
           fileDate = stat.changed;
         }
 //        debugPrint("fileDate=" + fileDate.toString());
 
-        var destPictureFolder = Directory(p.join(widget.destFolder, yearDateFormat.format(fileDate), dateDateFormat.format(fileDate)));
+        var destPictureFolder = Directory(p.join(
+            widget.destFolder, yearDateFormat.format(fileDate),
+            dateDateFormat.format(fileDate)));
         var destPicturePath = p.join(destPictureFolder.path, baseName);
 
         // フォルダを作成
-        if( !await destPictureFolder.exists()){
+        if (!await destPictureFolder.exists()) {
           await destPictureFolder.create(recursive: true);
         }
 
@@ -115,7 +133,7 @@ class _ImportMainState extends State<ImportMainPage> {
 
 
         await Future.delayed(new Duration(seconds: 1));
-      }catch(e, stackTrace) {
+      } catch (e, stackTrace) {
         print(e);
         print(stackTrace);
       }
@@ -124,34 +142,71 @@ class _ImportMainState extends State<ImportMainPage> {
     setState(() {
       _message = "終了";
       _progressPercent = 1;
-      _progressMessage = copyFiles.length.toString() + "/" + copyFiles.length.toString();
+      _progressMessage =
+          copyFiles.length.toString() + "/" + copyFiles.length.toString();
       _currentWork = "";
     });
+
+    print("finished");
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-        appBar: AppBar(
-          title: Text("インポート中"),
-        ),
-        body: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('$_message'),
-                new CircularPercentIndicator(
-                  radius: 100.0,
-                  lineWidth: 10.0,
-                  percent: _progressPercent,
-                  center: Text('$_progressMessage'),
-                  progressColor: Colors.orange,
-                ),
-                SizedBox(height: 30),
-                Text('$_currentWork'),
-              ],
+    return WillPopScope(
+        onWillPop: () async {
+          print("_operator.isCompleted="+_importFuture.toString());
+
+          if(!_finish) {
+            var result = await showDialog<bool>(
+              context: context,
+              builder: (_) {
+                return AlertDialog(
+                  title: Text("中断"),
+                  content: Text("処理を中断しますか？"),
+                  actions: <Widget>[
+                    // ボタン領域
+                    FlatButton(
+                      child: Text("Cancel"),
+                      onPressed: () => Navigator.of(context).pop(false),
+                    ),
+                    FlatButton(
+                      child: Text("OK"),
+                      onPressed: () => Navigator.of(context).pop(true),
+                    ),
+                  ],
+                );
+              },
+            );
+            if(!result) {
+              return Future.value(false);
+            }
+            // 中断処理
+            _cancel = true;
+            await _importFuture;
+          }
+          return Future.value(true);
+        },
+        child: Scaffold(
+            appBar: AppBar(
+              title: Text("インポート中"),
+            ),
+            body: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('$_message'),
+                    new CircularPercentIndicator(
+                      radius: 100.0,
+                      lineWidth: 10.0,
+                      percent: _progressPercent,
+                      center: Text('$_progressMessage'),
+                      progressColor: Colors.orange,
+                    ),
+                    SizedBox(height: 30),
+                    Text('$_currentWork'),
+                  ],
+                )
             )
-        )
-    );
+        ));
   }
 }
